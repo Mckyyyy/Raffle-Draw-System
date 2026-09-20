@@ -63,15 +63,24 @@ export default function WinnerModal({ open, phase, display, reel, reelRows, curr
     return () => { window.removeEventListener('keydown', onKey); document.body.classList.remove('modal-open'); };
   }, [open, done, onClose]);
 
+  // Stamp the final view with the moment the batch finished (client clock; the audit page has the server times)
+  const finishedAt = useMemo(() => (done ? new Date() : null), [done]);
+
   if (!open || !current) return null;
 
   const isRevealed = revealed.some((r) => r.draw_id === current.draw_id);
+  const stamp = finishedAt?.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
   return (
     <div className="wm-overlay" role="dialog" aria-modal="true" aria-label="Raffle winner announcement">
       <Confetti burst={burst} />
       <div className={`wm-card ${isRevealed ? 'revealed' : 'shuffling'} ${done ? 'done' : ''}`}>
         <div className="wm-rays" aria-hidden="true" />
+        {done && (
+          <div className="wm-sparkles" aria-hidden="true">
+            {Array.from({ length: 14 }, (_, i) => <span key={i} style={{ '--i': i }} />)}
+          </div>
+        )}
         <div className="wm-corner tl" aria-hidden="true" /><div className="wm-corner tr" aria-hidden="true" />
         <div className="wm-corner bl" aria-hidden="true" /><div className="wm-corner br" aria-hidden="true" />
 
@@ -88,8 +97,16 @@ export default function WinnerModal({ open, phase, display, reel, reelRows, curr
         </header>
 
         {done ? (
-          <div className="wm-final-title" role="heading" aria-level={2}>
-            <span aria-hidden="true">🎉</span> WINNER <span aria-hidden="true">🎉</span>
+          <div className="wm-final">
+            <div className="wm-congrats">Congratulations</div>
+            <div className="wm-final-title" role="heading" aria-level={2}>
+              <span className="wm-star" aria-hidden="true">✦</span>
+              {total > 1 ? 'Winners' : 'Winner'}
+              <span className="wm-star" aria-hidden="true">✦</span>
+            </div>
+            <div className="wm-final-sub">
+              {total > 1 ? `${total} names drawn` : 'Official raffle result'}{stamp ? ` · ${stamp}` : ''}
+            </div>
           </div>
         ) : (
           <div className="wm-order">Winner No. {current.draw_order}</div>
@@ -97,15 +114,16 @@ export default function WinnerModal({ open, phase, display, reel, reelRows, curr
 
         {!done && (
           <div className="wm-name-wrap">
-            {isRevealed || !reelRows?.length ? (
+            {reelRows?.length ? (
+              <>
+                {/* The reel stays through the reveal: the winner lands in the rectangle and turns gold there */}
+                <NameReel reel={reel} rows={reelRows} revealed={isRevealed} />
+                <span className="sr-only" aria-live={isRevealed ? 'polite' : 'off'}>{display}</span>
+              </>
+            ) : (
               <div className="wm-name" key={isRevealed ? `r-${current.draw_id}` : 'shuffling'}>
                 {display}
               </div>
-            ) : (
-              <>
-                <NameReel reel={reel} rows={reelRows} />
-                <span className="sr-only" aria-live="off">{display}</span>
-              </>
             )}
             <div className="wm-rule" />
           </div>

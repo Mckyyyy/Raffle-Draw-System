@@ -11,19 +11,28 @@ import { useEffect, useRef } from 'react';
  * component applies it straight to the DOM (no React re-render per frame) so the
  * motion stays smooth even with hundreds of rows.
  */
-export default function NameReel({ reel, rows }) {
+export default function NameReel({ reel, rows, revealed = false }) {
   const trackRef = useRef(null);
-  const rowRef = useRef(null);
 
   useEffect(() => {
     let raf = 0;
     let rowH = 0;
-    const measure = () => { rowH = rowRef.current?.offsetHeight || 0; };
-    measure();
-    window.addEventListener('resize', measure);
+    // Row height = layout height of the whole track / rows. Layout (offsetHeight) ignores
+    // transforms — the modal card scales in while this mounts, so getBoundingClientRect would
+    // be too small — and dividing the whole track's height by the row count keeps the
+    // per-row value fractional, so no rounding error accumulates over hundreds of rows.
+    const measure = () => {
+      const t = trackRef.current;
+      rowH = t && rows.length ? t.offsetHeight / rows.length : 0;
+    };
+    // New round: drop any highlight left on a reused row element from the previous round
+    if (trackRef.current) {
+      for (const el of trackRef.current.children) el.classList.remove('is-centre');
+      delete trackRef.current.dataset.centre;
+    }
     const frame = () => {
       const track = trackRef.current;
-      if (!rowH) measure();
+      measure();                       // cheap (no layout is dirtied by the transform) and self-correcting on resize
       if (track && rowH) {
         const pos = reel.current.pos;
         track.style.transform = `translate3d(0, ${(-pos * rowH).toFixed(2)}px, 0)`;
@@ -39,15 +48,15 @@ export default function NameReel({ reel, rows }) {
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
-    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', measure); };
+    return () => cancelAnimationFrame(raf);
   }, [reel, rows]);
 
   return (
-    <div className="reel" aria-hidden="true">
+    <div className={`reel ${revealed ? 'revealed' : ''}`} aria-hidden="true">
       <div className="reel-window">
         <div className="reel-track" ref={trackRef}>
           {rows.map((name, i) => (
-            <div className="reel-row" key={i} ref={i === 0 ? rowRef : undefined}>{name}</div>
+            <div className="reel-row" key={i}>{name}</div>
           ))}
         </div>
       </div>

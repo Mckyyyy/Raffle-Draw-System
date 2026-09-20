@@ -327,7 +327,14 @@ body.modal-open { overflow: hidden; }
 }
 .wm-card.revealed .wm-order { animation: wm-sheen 2.5s linear infinite; }
 
-.wm-name-wrap { position: relative; padding: 8px 0 18px; }
+.wm-name-wrap {
+  position: relative; padding: 8px 0 18px;
+  /* The reel and the revealed name share one fixed-height box so the card never jumps in
+     height when a name is revealed and the next reel starts. */
+  --reel-row: clamp(2.3rem, 7vh, 3.8rem);
+  min-height: calc(var(--reel-row) * 5 + 2px + clamp(6px, 1.4vh, 14px)); /* reel + the .wm-rule below it */
+  display: flex; flex-direction: column; justify-content: center; align-items: center;
+}
 .wm-name {
   font-family: Georgia, "Times New Roman", serif;
   font-size: clamp(2.2rem, 7.5vw, 5.4rem); font-weight: 700; line-height: 1.1; letter-spacing: .01em;
@@ -345,11 +352,11 @@ body.modal-open { overflow: hidden; }
 }
 /* ---- Name reel (every participant moves up through the centre rectangle) ---- */
 .reel {
-  --reel-row: clamp(2.6rem, 9vh, 4.6rem);
   position: relative; display: block; width: 100%; max-width: 760px; margin: 0 auto; box-sizing: border-box;
-  height: calc(var(--reel-row) * 5);
-  -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 22%, #000 78%, transparent 100%);
-  mask-image: linear-gradient(180deg, transparent 0%, #000 22%, #000 78%, transparent 100%);
+  height: calc(var(--reel-row) * 5); flex: none;
+  /* rows melt away towards the pill above and the list below */
+  -webkit-mask-image: linear-gradient(180deg, transparent 4%, #000 34%, #000 66%, transparent 96%);
+  mask-image: linear-gradient(180deg, transparent 4%, #000 34%, #000 66%, transparent 96%);
 }
 .reel-window { position: absolute; inset: 0; overflow: hidden; }
 .reel-track {
@@ -360,19 +367,44 @@ body.modal-open { overflow: hidden; }
   height: var(--reel-row); line-height: var(--reel-row);
   font-family: Georgia, "Times New Roman", serif; font-weight: 700; letter-spacing: .01em;
   font-size: clamp(1.3rem, min(4.2vw, 5.2vh), 2.6rem);
-  color: var(--muted); opacity: .45; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  text-align: center; padding: 0 8px;
-  transform: scale(.9);
-  transition: opacity .12s linear, transform .12s ease-out, color .12s linear;
+  color: var(--muted); opacity: .4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  text-align: center; padding: 0 10%;   /* keeps every name inside the marker rectangle's width */
+  box-sizing: border-box;
+  transform: scale(.88);
+  transition: opacity .05s linear, transform .05s ease-out; /* short: at full speed a row is in the box for ~25 ms */
 }
-.reel-row.is-centre { opacity: 1; color: var(--text); transform: scale(1.08); }
+.reel-row.is-centre { opacity: 1; color: #fff7d6; transform: scale(1.06); text-shadow: 0 2px 14px rgba(245, 158, 11, .35); }
 .reel-marker {
-  position: absolute; left: 6%; right: 6%; top: calc(var(--reel-row) * 2); height: var(--reel-row);
-  border-top: 2px solid rgba(245, 158, 11, .55); border-bottom: 2px solid rgba(245, 158, 11, .55);
-  border-radius: 8px;
-  background: linear-gradient(90deg, transparent, rgba(245, 158, 11, .08), transparent);
+  position: absolute; left: 8%; right: 8%;
+  top: calc(var(--reel-row) * 2 - var(--reel-row) * .12); height: calc(var(--reel-row) * 1.18);
+  box-sizing: border-box; border: 2px solid rgba(251, 191, 36, .6); border-radius: 12px;
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0), rgba(245, 158, 11, .10), rgba(245, 158, 11, 0));
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, .12), inset 0 0 24px rgba(245, 158, 11, .10);
   pointer-events: none;
 }
+/* Reveal: the winner is the row inside the rectangle — everything else melts away */
+.reel.revealed .reel-row { opacity: 0; transition: opacity .35s ease; }
+.reel.revealed .reel-row.is-centre {
+  opacity: 1;
+  color: transparent;
+  background: linear-gradient(100deg, #fde68a 0%, #fbbf24 30%, #fff7d6 50%, #f59e0b 70%, #fde68a 100%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text; background-clip: text;
+  text-shadow: none;
+  filter: drop-shadow(0 4px 18px rgba(245, 158, 11, .45));
+  animation: reel-win-pop .7s cubic-bezier(.2, .9, .3, 1.3) both, wm-sheen 3.5s linear .7s infinite;
+}
+.reel.revealed .reel-marker {
+  border-color: #fbbf24;
+  background: linear-gradient(90deg, rgba(245, 158, 11, .06), rgba(245, 158, 11, .18), rgba(245, 158, 11, .06));
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, .35), 0 0 34px rgba(245, 158, 11, .45), inset 0 0 30px rgba(245, 158, 11, .18);
+  transition: border-color .3s ease, box-shadow .5s ease, background .3s ease;
+}
+.reel.revealed { -webkit-mask-image: none; mask-image: none; }
+.wm-name-wrap:has(.reel) .wm-rule { display: none; }   /* the rectangle is the underline now */
+@keyframes reel-win-pop { 0% { transform: scale(.9); } 60% { transform: scale(1.3); } 100% { transform: scale(1.22); } }
+@media (prefers-reduced-motion: reduce) { .reel.revealed .reel-row.is-centre { animation: none; transform: scale(1.22); } }
+
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 .wm-rule {
@@ -443,11 +475,53 @@ body.modal-open { overflow: hidden; }
   .confetti { display: none; }
 }
 
-/* ---- Final result: "🎉 WINNER 🎉" + highlighted name(s) ---- */
+/* ---- Final result: "Congratulations · WINNER(S)" + highlighted name cards ---- */
+.wm-final { flex: none; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.wm-congrats {
+  font-family: Georgia, "Times New Roman", serif; font-style: italic; font-weight: 400;
+  font-size: clamp(1rem, 2.6vh, 1.35rem); letter-spacing: .04em; color: #fde68a; opacity: .9;
+  animation: wm-fade-up .5s .05s cubic-bezier(.2, .9, .3, 1) both;
+}
 .wm-final-title {
-  margin: 22px auto 6px; font-size: clamp(1.3rem, 3.5vw, 2rem); font-weight: 800;
-  letter-spacing: .22em; text-transform: uppercase; color: var(--accent-2);
-  animation: wm-name-pop .6s cubic-bezier(.2, .9, .3, 1.3) both;
+  display: flex; align-items: center; gap: .5em;
+  margin: 2px auto 0; font-size: clamp(1.5rem, 4.6vh, 2.6rem); font-weight: 800;
+  letter-spacing: .26em; text-transform: uppercase; padding-left: .26em; /* balance the tracking */
+  color: transparent;
+  background: linear-gradient(100deg, #fde68a 0%, #fbbf24 30%, #fff7d6 50%, #f59e0b 70%, #fde68a 100%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text; background-clip: text;
+  filter: drop-shadow(0 3px 14px rgba(245, 158, 11, .4));
+  animation: wm-name-pop .6s cubic-bezier(.2, .9, .3, 1.3) both, wm-sheen 3.5s linear .6s infinite;
+}
+.wm-star { font-size: .55em; letter-spacing: 0; animation: wm-twinkle 1.8s ease-in-out infinite; }
+.wm-final-title .wm-star:last-child { animation-delay: .9s; }
+.wm-final-sub {
+  font-size: clamp(.62rem, 1.4vh, .78rem); letter-spacing: .18em; text-transform: uppercase;
+  color: var(--muted); animation: wm-fade-up .5s .2s cubic-bezier(.2, .9, .3, 1) both;
+}
+@keyframes wm-fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes wm-twinkle { 0%, 100% { opacity: .35; transform: scale(.8) rotate(0); } 50% { opacity: 1; transform: scale(1.15) rotate(20deg); } }
+
+.wm-batch.final .wm-trophy { filter: drop-shadow(0 2px 6px rgba(245, 158, 11, .5)); }
+
+/* floating gold sparkles behind the final view */
+.wm-sparkles { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: inherit; }
+.wm-sparkles span {
+  position: absolute; width: 6px; height: 6px; border-radius: 50%;
+  left: calc(4% + var(--i) * 6.6%);
+  top: calc(10% + mod(var(--i) * 37, 76) * 1%);
+  background: radial-gradient(circle, #fff7d6 0%, #fbbf24 45%, transparent 70%);
+  opacity: 0; animation: wm-sparkle 3.2s ease-in-out infinite; animation-delay: calc(var(--i) * -.37s);
+}
+@keyframes wm-sparkle {
+  0%, 100% { opacity: 0; transform: translateY(0) scale(.4); }
+  40%      { opacity: .9; transform: translateY(-14px) scale(1.1); }
+  70%      { opacity: .5; transform: translateY(-26px) scale(.7); }
+}
+.wm-card.done .wm-seal { animation: wm-seal-pulse 2.6s ease-in-out infinite; }
+@keyframes wm-seal-pulse {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(245, 158, 11, .35), 0 0 28px rgba(245, 158, 11, .35); }
+  50%      { box-shadow: 0 0 0 6px rgba(245, 158, 11, .45), 0 0 44px rgba(245, 158, 11, .55); }
 }
 
 /* 2–10 winners: one highlighted row per name */
@@ -458,9 +532,11 @@ body.modal-open { overflow: hidden; }
 .wm-batch.final .wm-batch-name { font-size: clamp(1.15rem, 2.8vw, 1.6rem); font-family: Georgia, "Times New Roman", serif; }
 .wm-winner-row.highlight {
   padding: 12px 18px; border-radius: 14px;
-  background: linear-gradient(90deg, rgba(245, 158, 11, .28), rgba(245, 158, 11, .10));
-  border: 2px solid var(--accent);
-  color: var(--accent-2);
+  background: linear-gradient(90deg, rgba(245, 158, 11, .26), rgba(245, 158, 11, .08) 60%, rgba(245, 158, 11, .16)) padding-box,
+              #1a2540 padding-box,                                                                  /* opaque base so the frame does not bleed through */
+              linear-gradient(120deg, #fde68a, #f59e0b 40%, #fbbf24 60%, #b45309) border-box;      /* gradient gold frame */
+  border: 2px solid transparent;
+  color: #fff3c4;
   box-shadow: 0 0 0 3px rgba(245, 158, 11, .15), 0 6px 24px rgba(245, 158, 11, .25);
   animation: wm-row-in .5s cubic-bezier(.2, .9, .3, 1.2) both, wm-row-glow 2.2s ease-in-out infinite;
   animation-delay: calc(var(--i, 0) * 90ms), calc(.5s + var(--i, 0) * 90ms);
@@ -472,8 +548,12 @@ body.modal-open { overflow: hidden; }
   50%      { box-shadow: 0 0 0 4px rgba(245, 158, 11, .28), 0 6px 34px rgba(245, 158, 11, .45); }
 }
 
+.wm-batch.final.single .wm-batch-list { grid-template-columns: 1fr; }
+.wm-batch.final.single .wm-winner-row.highlight { justify-content: center; padding: clamp(14px, 3vh, 26px) clamp(18px, 3vw, 36px); }
+.wm-batch.final.single .wm-batch-name { flex: none; font-size: clamp(1.5rem, min(5vw, 6vh), 3rem); white-space: normal; text-align: center; }
+
 @media (prefers-reduced-motion: reduce) {
-  .wm-final-title, .wm-winner-row.highlight { animation: none !important; }
+  .wm-final-title, .wm-winner-row.highlight, .wm-congrats, .wm-final-sub, .wm-star, .wm-sparkles span, .wm-card.done .wm-seal { animation: none !important; }
 }
 
 /* ---- Modal sizing: no stray scrollbars, Close always visible ---- */
@@ -546,10 +626,11 @@ body.modal-open { overflow: hidden; }
 .wm-lgu { margin-top: clamp(2px, .8vh, 8px); font-size: clamp(.7rem, 1.6vh, .95rem); }
 .wm-kicker { font-size: clamp(.6rem, 1.3vh, .78rem); }
 .wm-order { margin: clamp(10px, 2.2vh, 26px) auto clamp(4px, 1vh, 10px); padding: clamp(5px, .9vh, 8px) 22px; font-size: clamp(.7rem, 1.4vh, .85rem); }
-.wm-final-title { flex: none; margin: clamp(8px, 1.6vh, 16px) auto clamp(4px, .8vh, 8px); font-size: clamp(1.1rem, 3.4vh, 2rem); }
+.wm-final { flex: none; margin: clamp(6px, 1.4vh, 14px) auto clamp(4px, 1vh, 10px); }
+.wm-final-title { flex: none; margin: 0 auto; font-size: clamp(1.4rem, 4.4vh, 2.6rem); }
 
 /* single winner: name capped by height as well as width */
-.wm-name-wrap { flex: none; width: 100%; padding: clamp(4px, .8vh, 8px) 0 clamp(8px, 1.6vh, 18px); max-width: 100%; } /* full width: the reel's layers are absolutely positioned and would otherwise collapse to 0 */
+.wm-name-wrap { flex: none; width: 100%; padding: clamp(4px, .8vh, 8px) 0 clamp(6px, 1.2vh, 14px); max-width: 100%; } /* full width: the reel's layers are absolutely positioned and would otherwise collapse to 0 */
 .wm-name { font-size: clamp(1.8rem, min(7.5vw, 11vh), 5.4rem); }
 .wm-rule { margin-top: clamp(6px, 1.4vh, 14px); }
 
@@ -574,6 +655,8 @@ body.modal-open { overflow: hidden; }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; /* one clean line per card */
 }
 .wm-trophy { font-size: clamp(.9em, 2.4vh, 1.15em); }
+.wm-batch.final .wm-trophy { font-size: clamp(1.4rem, 4vh, 2.1rem); flex: none; }        /* final cards: big trophy */
+.wm-batch.final.single .wm-trophy { font-size: clamp(2rem, 6.5vh, 3.2rem); }
 
 /* narrow phones: one column, still height-fitted */
 @media (max-width: 560px) {

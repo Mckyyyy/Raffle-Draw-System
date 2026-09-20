@@ -19,17 +19,12 @@ const FULL = 0.9;   // volume during the shuffle
  * every name change lands on an audible drum tick, and the winner lands exactly
  * on the stop hit.
  *
- * LOOP is a slice of the constant-speed rattle that can be repeated seamlessly.
- * When the pool is too big to show every name before DECEL_FROM_S, `startRound`
- * plays that slice extra times, so the roll lasts as long as the pool needs and
- * everything after it (ticks, stop hit, fanfare) simply shifts later.
  */
 const RATTLE_STEP_S = 0.07;     // in the rattle the hits are too fast to hear individually
 const rattle = (endS) => Array.from({ length: Math.floor(endS / RATTLE_STEP_S) }, (_, i) => +(0.08 + i * RATTLE_STEP_S).toFixed(3));
 export const TRACKS = {
   full: {
     url: fullUrl,
-    LOOP: { start: 1.55, end: 2.20 },   // repeatable rattle slice (0.65 s)
     DECEL_FROM_S: 5.5,           // from here the ticks are clearly separate hits (≥ 0.2 s apart)
     REVEAL_S: 9.2,               // winner is shown on this hit
     FANFARE_END_S: 10.7,         // final chord has finished by here
@@ -44,7 +39,6 @@ export const TRACKS = {
   },
   short: {
     url: shortUrl,
-    LOOP: { start: 0.95, end: 1.60 },
     DECEL_FROM_S: 1.6,
     REVEAL_S: 3.95,
     FANFARE_END_S: 5.45,
@@ -135,16 +129,12 @@ export function useDrawAudio() {
   }, []);
 
   /**
-   * Play the given track ('full' | 'short') from the top for one shuffle round,
-   * with the rattle LOOP repeated `loops` extra times (see TRACKS).
-   * Resolves to a clock: () => seconds on the round's timeline, i.e. the track's
-   * own time plus whatever the loops inserted. While the audio is audibly playing
-   * the clock is re-anchored to the audio position, so the shuffle can never
-   * drift away from the music.
+   * Play the given track ('full' | 'short') from the top, uninterrupted, for one
+   * shuffle round. Resolves to a clock: () => seconds since the round started.
+   * While the audio is audibly playing the clock is re-anchored to the audio
+   * position, so the shuffle can never drift away from the music.
    */
-  const startRound = useCallback(async (kind = 'full', loops = 0) => {
-    const track = TRACKS[kind];
-    const loopLen = track.LOOP.end - track.LOOP.start;
+  const startRound = useCallback(async (kind = 'full') => {
     let anchor = performance.now();
     const wallClock = () => (performance.now() - anchor) / 1000;
     if (muted) return wallClock;
@@ -165,16 +155,9 @@ export function useDrawAudio() {
       return wallClock;
     }
     rampTo(FULL, 120);              // the track has its own fade-in; this only hides the start click
-    let loopsLeft = loops;
-    let inserted = 0;               // seconds the loops have added to the timeline so far
     return () => {
       if (!a.paused && !a.ended) {
-        if (loopsLeft > 0 && a.currentTime >= track.LOOP.end) {
-          a.currentTime = track.LOOP.start;   // seamless: same steady rattle on both sides of the cut
-          inserted += loopLen;
-          loopsLeft--;
-        }
-        const drift = a.currentTime + inserted - wallClock();
+        const drift = a.currentTime - wallClock();
         if (Math.abs(drift) > 0.05) anchor -= drift * 1000;   // snap the clock back onto the audio
       }
       return wallClock();

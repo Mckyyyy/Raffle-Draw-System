@@ -7,21 +7,19 @@ import { useDrawAudio, TRACKS } from '../hooks/useDrawAudio.js';
 import { browserNonce } from '../verify.js';
 import lguLogo from '../assets/LGU_LOGO.png';
 
-// Every name is drawn to one play of a music track: the reel of names spins up through the
-// fast roll, steps on the drum hits and the winner lands on the "stop" hit (see TRACKS in
-// useDrawAudio.js). The first name of a batch gets the full roll; later names use the shorter
-// cut. Either way EVERY name in the pool passes through the reel: if the pool is too big for
-// the roll, the track's rattle is looped for as long as it takes (`loopsFor`) and the rest of
-// the track shifts later.
-const REEL_MAX_ROWS_PER_S = 60;   // faster than this the names are an unreadable blur
+// Every name is drawn to one uninterrupted play of a music track: the reel of names spins up
+// through the fast roll, steps on the drum hits and the winner lands on the "stop" hit (see
+// TRACKS in useDrawAudio.js). EVERY name in the pool passes through the reel within that time,
+// so the reel's speed follows the pool size. The first name of a batch always gets the full
+// roll; later names use the shorter cut whenever the whole pool still fits it at a readable
+// speed, otherwise they get the full roll too.
+const REEL_MAX_ROWS_PER_S = 60;   // above this the short cut is too fast to read → use the full roll
 const REEL_MIN_ROWS_PER_S = 25;   // slower than this the roll looks lazy (small pools cycle several times)
 const REEL_SPINUP_S = 0.4;        // the reel accelerates over this long at the start
+const REEL_TAIL_ROWS = 4;         // names shown below the winner at the stop, so the end is not telegraphed
 const fastEndOf = (track) => track.TICKS_S.find((t) => t >= track.DECEL_FROM_S) ?? track.REVEAL_S;
-const trackFor = (idx) => (idx === 0 ? 'full' : 'short');
-const loopsFor = (track, poolSize) => {
-  const need = poolSize / REEL_MAX_ROWS_PER_S + REEL_SPINUP_S / 2 - fastEndOf(track);   // seconds the roll is short by
-  return need > 0 ? Math.ceil(need / (track.LOOP.end - track.LOOP.start)) : 0;
-};
+const reelCapacity = (track) => Math.floor(REEL_MAX_ROWS_PER_S * (fastEndOf(track) - REEL_SPINUP_S / 2));
+const trackFor = (idx, poolSize) => (idx === 0 || poolSize > reelCapacity(TRACKS.short) ? 'full' : 'short');
 const pauseAfter = (kind) => Math.round((TRACKS[kind].FANFARE_END_S - TRACKS[kind].REVEAL_S) * 1000) + 200; // let the fanfare finish
 const PAUSE_LAST_MS = 2600;      // the final name gets a longer highlighted moment before the summary appears
 
@@ -94,13 +92,12 @@ export default function LiveDraw() {
   // repeated for small pools so the roll never looks lazy) and ends on the winner:
   //   rows = [ ...fast-roll names | ...one name per audible drum tick | winner ]
   // Position is a function of `clock()` — the round clock from the audio hook, locked to the
-  // track's playback position — so the reel can never drift from the music. `extraS` is how
-  // much the rattle loops added before the slow-down; everything after it shifts by that.
+  // track's playback position — so the reel can never drift from the music:
   //   1. Fast roll  [0, fastEnd): spins up over REEL_SPINUP_S, then constant speed, chosen so
   //      that all the fast-roll rows have passed the centre line exactly when the roll ends.
-  //   2. Slow-down  [fastEnd, revealAt): one row per drum tick — the track's own deceleration.
-  //   3. revealAt: the winner is in the centre rectangle; the modal switches to the reveal.
-  const shuffle = (names, finalName, track, clock, extraS = 0) => new Promise((resolve) => {
+  //   2. Slow-down  [fastEnd, REVEAL_S): one row per drum tick — the track's own deceleration.
+  //   3. REVEAL_S: the winner is in the centre rectangle; the modal switches to the reveal.
+  const planShuffle = (names, finalName, track) => {
     const permute = (arr) => {
       const out = [...arr];
       for (let k = out.length - 1; k > 0; k--) {           // Fisher–Yates, display order only
@@ -109,8 +106,8 @@ export default function LiveDraw() {
       }
       return out;
     };
-    const decelTicks = track.TICKS_S.filter((t) => t >= track.DECEL_FROM_S).map((t) => t + extraS);
-    const revealAt = track.REVEAL_S + extraS;
+    const decelTicks = track.TICKS_S.filter((t) => t >= track.DECEL_FROM_S);
+    const revealAt = track.REVEAL_S;
     const fastEnd = decelTicks[0] ?? revealAt;
 
     // One permutation walked in order across both phases, repeated for small pools; the
@@ -127,10 +124,13 @@ export default function LiveDraw() {
     const fastRows = [];
     while (fastRows.length < Math.max(names.length, minFast)) fastRows.push(take(false));
     const decelRows = decelTicks.map(() => take(true));
-    const rows = [...fastRows, ...decelRows, finalName];
+    // A few names continue below the winner so the reel never looks like it is running out
+    const tailRows = Array.from({ length: REEL_TAIL_ROWS }, () => take(true));
+    const rows = [...fastRows, ...decelRows, finalName, ...tailRows];
+    const winnerIdx = fastRows.length + decelRows.length;
     const nFast = fastRows.length;
     reelRef.current = { rows, pos: 0 };
-    setReelRows(rows);
+    setReelRows(rows);                                   // the reel is on screen before the music starts
 
     // Position curve. Fast roll: velocity ramps 0 → V over REEL_SPINUP_S then holds, and must
     // cover (nFast - 1) rows by fastEnd.  Slow-down: at each tick slide one row (ease-out).
@@ -139,27 +139,32 @@ export default function LiveDraw() {
     const fastPos = (t) => (t < t0 ? (V * t * t) / (2 * t0) : V * (t - t0 / 2));
     const easeOut = (u) => 1 - Math.pow(1 - Math.min(1, Math.max(0, u)), 3);
     const stops = [...decelTicks, revealAt];
+    const LAND_S = 0.12;                                   // the winner glides in over this, ending on the hit
     const posAt = (t) => {
       if (t < fastEnd) return fastPos(t);
+      if (t >= revealAt - LAND_S) return winnerIdx - 1 + easeOut((t - (revealAt - LAND_S)) / LAND_S);
       let k = 0;
       while (k + 1 < stops.length && stops[k + 1] <= t) k++;
       const gap = (stops[k + 1] ?? stops[k] + 0.3) - stops[k];
       const slide = Math.min(0.18, gap * 0.55);
       return nFast - 1 + k + easeOut((t - stops[k]) / slide);
     };
+    return { rows, posAt, fastEnd, revealAt, finalName, winnerIdx };
+  };
 
+  const runShuffle = ({ rows, posAt, fastEnd, revealAt, finalName, winnerIdx }, clock) => new Promise((resolve) => {
     let lastShown = -1;
     let lastShownAt = 0;
     const frame = () => {
       if (!aliveRef.current) return;
       const t = clock();
       if (t >= revealAt) {
-        reelRef.current.pos = rows.length - 1;
+        reelRef.current.pos = winnerIdx;
         setDisplay(finalName);
         resolve();
         return;
       }
-      const pos = Math.min(rows.length - 2, posAt(t));
+      const pos = Math.min(winnerIdx, posAt(t));
       reelRef.current.pos = pos;
       // The stage behind the modal mirrors the centre name (throttled — it is not the main display)
       const centre = Math.round(pos);
@@ -203,10 +208,10 @@ export default function LiveDraw() {
       if (!aliveRef.current) return;
       setCurrent(d);
       if (names.length === 0) names = [d.winner.full_name];
-      const kind = trackFor(idx);
-      const loops = loopsFor(TRACKS[kind], names.length);   // 0 unless the pool needs a longer roll
-      const clock = await audio.startRound(kind, loops);    // track restarts from the top for every name
-      await shuffle(names, d.winner.full_name, TRACKS[kind], clock, loops * (TRACKS[kind].LOOP.end - TRACKS[kind].LOOP.start));
+      const kind = trackFor(idx, names.length);
+      const plan = planShuffle(names, d.winner.full_name, TRACKS[kind]);
+      const clock = await audio.startRound(kind);      // track restarts from the top for every name
+      await runShuffle(plan, clock);
       done.push(d);
       setRevealed([...done]);
       setBurst((b) => b + 1);
